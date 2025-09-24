@@ -49,6 +49,7 @@ docker run -v $(pwd)/social.org:/app/social.org:ro -v $(pwd)/preview:/app/previe
 - `--preview-dir`, `-p`: Directory to save HTML previews (default: `preview`)
 - `--template-dir`, `-td`: Directory containing the template file (default: `.`)
 - `--template-name`, `-tn`: Template filename (default: `template.html`)
+- `--use-pandoc`: Use [pandoc](https://pandoc.org) to convert the contents of each post to HTML
 
 ### Local Python
 

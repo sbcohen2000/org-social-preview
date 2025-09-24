@@ -124,7 +124,7 @@ class OrgSocialParser:
 
 
 class PreviewGenerator:
-    def __init__(self, template_dir=".", template_name="template.html"):
+    def __init__(self, template_dir=".", template_name="template.html", use_pandoc=False):
         self.env = Environment(loader=FileSystemLoader(template_dir))
 
         def og_description(value, max_length=120):
@@ -144,6 +144,7 @@ class PreviewGenerator:
 
         self.env.filters["og_description"] = og_description
         self.template = self.env.get_template(template_name)
+        self.use_pandoc = use_pandoc
 
     def generate_preview(self, post, metadata):
         """Generate HTML preview for a single post"""
@@ -200,6 +201,55 @@ class PreviewGenerator:
 
     def _format_content(self, content, mood, reply_to):
         """Format post content"""
+        if self.use_pandoc:
+            return self._format_content_pandoc(content)
+        else:
+            return self._format_content_raw(content, mood, reply_to)
+
+    def _format_content_pandoc(self, content):
+        """Format post content by passing it into pandoc"""
+        import shutil
+        import subprocess
+
+        pandoc_path = shutil.which("pandoc")
+        if not pandoc_path:
+            raise OSError("Could not find pandoc on the PATH")
+
+        # Note that if no input files are specified, input comes from
+        # stdin, and output goes to stdout by default.
+        args = [
+            pandoc_path,
+            "--from", "org",
+            "--to", "html"
+        ]
+        with subprocess.Popen(
+                args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+        ) as p:
+            try:
+                stdout, stderr = p.communicate(content, timeout=15)
+
+                # Note: When p.communicate is done, it will set the
+                # returncode attribute on p.
+                if p.returncode != 0:
+                    print("stderr:", stderr)
+                    raise Exception("pandoc finished with a non-zero exit code")
+
+                return stdout
+            except TimeoutExpired:
+                p.kill()
+                # Get the unread remnants of stdout and stderr so that
+                # we can report them.
+                stdout, stderr = p.communicate()
+                print("stdout:", stdout)
+                print("stderr:", stderr)
+                raise Exception("pandoc took too long, and so it was killed")
+
+    def _format_content_raw(self, content, mood, reply_to):
+        """Format post content by replacing known tags"""
         if not content.strip() and mood:
             return f'<span style="font-size: 20px;">{mood}</span>'
 
@@ -244,12 +294,12 @@ class PreviewGenerator:
 
 class OrgSocialPreviewGenerator:
     def __init__(
-        self, social_file, preview_dir, template_dir=".", template_name="template.html"
+            self, social_file, preview_dir, template_dir=".", template_name="template.html", use_pandoc=False
     ):
         self.social_file = Path(social_file).resolve()
         self.preview_dir = Path(preview_dir)
         self.parser = OrgSocialParser()
-        self.generator = PreviewGenerator(template_dir, template_name)
+        self.generator = PreviewGenerator(template_dir, template_name, use_pandoc)
 
         # Create preview directory if it doesn't exist
         self.preview_dir.mkdir(exist_ok=True)
@@ -308,6 +358,7 @@ def main():
     parser.add_argument("--preview-dir", "-p", default="preview")
     parser.add_argument("--template-dir", "-td", default=".")
     parser.add_argument("--template-name", "-tn", default="template.html")
+    parser.add_argument("--use-pandoc", action="store_true")
 
     args = parser.parse_args()
 
@@ -323,7 +374,7 @@ def main():
 
     # Create generator and run
     generator = OrgSocialPreviewGenerator(
-        args.social_file, args.preview_dir, args.template_dir, args.template_name
+        args.social_file, args.preview_dir, args.template_dir, args.template_name, args.use_pandoc
     )
 
     return generator.generate_all_previews()
